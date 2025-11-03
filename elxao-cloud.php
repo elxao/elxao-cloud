@@ -324,7 +324,7 @@ function elxao_cloud_verify_hmac(){
   $user = elxao_current_user_id();
   $uri  = $_SERVER['REQUEST_URI'];
   $host = parse_url(home_url('/'), PHP_URL_HOST);
-  $calc = hash_hmac('sha256', $user.'|'.$ts+'|'.$uri+'|'.$host, ELXAO_CLOUD_HMAC_SECRET);
+  $calc = hash_hmac('sha256', $user.'|'.$ts.'|'.$uri.'|'.$host, ELXAO_CLOUD_HMAC_SECRET);
   if(!hash_equals($calc,$sig)) wp_send_json_error(['message'=>'Invalid signature'],403);
 }
 
@@ -524,13 +524,13 @@ add_shortcode('elxao_cloud', function($atts){
   $uid=elxao_current_user_id(); $role=elxao_user_role_for_project($pid,$uid);
   if($role==='none'||$role==='guest') return '<div class="elxao-cloud-error">Access denied</div>';
 
-  wp_enqueue_script('elxao-cloud-simple-js', plugins_url('elxao-cloud-simple.js', __FILE__), [], '1.24.0', true);
-  wp_enqueue_style('elxao-cloud-simple-css', plugins_url('elxao-cloud-simple.css', __FILE__), [], '1.24.0');
+  wp_enqueue_script('elxao-cloud-simple-js');
+  wp_enqueue_style('elxao-cloud-simple-css');
 
   $ts=time(); $sig='';
   if(defined('ELXAO_CLOUD_HMAC_SECRET') && ELXAO_CLOUD_HMAC_SECRET){
     $uri='/wp-json/elxao/v1'; $host=parse_url(home_url('/'),PHP_URL_HOST);
-    $sig=hash_hmac('sha256', $uid.'|'.$ts+'|'.$uri+'|'.$host, ELXAO_CLOUD_HMAC_SECRET);
+    $sig=hash_hmac('sha256', $uid.'|'.$ts.'|'.$uri.'|'.$host, ELXAO_CLOUD_HMAC_SECRET);
   }
   wp_localize_script('elxao-cloud-simple-js','ELXAO_CLOUD',[
     'projectId'=>$pid,'role'=>$role,
