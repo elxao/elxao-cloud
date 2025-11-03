@@ -327,7 +327,9 @@ function elxao_cloud_verify_hmac(){
   if(!$ts||!$sig) elxao_rest_error('Missing signature',403);
   if(abs(time()-$ts)>120) elxao_rest_error('Signature expired',403);
   $user = elxao_current_user_id();
-  $uri  = $_SERVER['REQUEST_URI'];
+  $rest_base = get_rest_url(null,'elxao/v1');
+  $sig_uri_path = function_exists('wp_parse_url') ? wp_parse_url($rest_base, PHP_URL_PATH) : parse_url($rest_base, PHP_URL_PATH);
+  $uri  = $sig_uri_path ? rtrim($sig_uri_path,'/') : '/wp-json/elxao/v1';
   $host = parse_url(home_url('/'), PHP_URL_HOST);
   $calc = hash_hmac('sha256', $user.'|'.$ts.'|'.$uri.'|'.$host, ELXAO_CLOUD_HMAC_SECRET);
   if(!hash_equals($calc,$sig)) elxao_rest_error('Invalid signature',403);
@@ -541,14 +543,19 @@ function elxao_render_cloud_shortcode($atts){
   wp_enqueue_script('elxao-cloud-simple-js');
   wp_enqueue_style('elxao-cloud-simple-css');
 
+  $rest_base = get_rest_url(null,'elxao/v1');
+  $rest_base_esc = esc_url_raw($rest_base);
+  $sig_uri_path = function_exists('wp_parse_url') ? wp_parse_url($rest_base, PHP_URL_PATH) : parse_url($rest_base, PHP_URL_PATH);
+  $sig_uri = $sig_uri_path ? rtrim($sig_uri_path,'/') : '/wp-json/elxao/v1';
+
   $ts=time(); $sig='';
   if(defined('ELXAO_CLOUD_HMAC_SECRET') && ELXAO_CLOUD_HMAC_SECRET){
-    $uri='/wp-json/elxao/v1'; $host=parse_url(home_url('/'),PHP_URL_HOST);
-    $sig=hash_hmac('sha256', $uid.'|'.$ts.'|'.$uri.'|'.$host, ELXAO_CLOUD_HMAC_SECRET);
+    $host=parse_url(home_url('/'),PHP_URL_HOST);
+    $sig=hash_hmac('sha256', $uid.'|'.$ts.'|'.$sig_uri.'|'.$host, ELXAO_CLOUD_HMAC_SECRET);
   }
   wp_localize_script('elxao-cloud-simple-js','ELXAO_CLOUD',[
     'projectId'=>$pid,'role'=>$role,
-    'restBase'=>esc_url_raw(get_rest_url(null,'elxao/v1')),
+    'restBase'=>$rest_base_esc,
     'nonce'=>wp_create_nonce('wp_rest'),'ts'=>$ts,'sig'=>$sig,
     'uploadsSub'=>ELXAO_CLOUD_CLIENT_UPLOAD_SUBFOLDER,'chunk'=>(int)ELXAO_CLOUD_STREAM_CHUNK
   ]);
