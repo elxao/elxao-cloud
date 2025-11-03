@@ -288,6 +288,11 @@ function elxao_nc_request($method, $relative, $headers = [], $body = null, $extr
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_HEADER, true);
     curl_setopt($ch, CURLOPT_TIMEOUT, (int)ELXAO_NC_TIMEOUT);
+    // Allow libcurl to transparently decode compressed responses when available.
+    // Some larger Nextcloud PROPFIND responses may be gzip encoded which would
+    // otherwise cause XML parsing to fail. Letting cURL advertise support keeps
+    // other callers unaffected while still returning the original body contents.
+    curl_setopt($ch, CURLOPT_ENCODING, '');
     // Always send Depth header, but allow overrides
     $http_headers = array_merge(['Depth: 1'], $headers);
     curl_setopt($ch, CURLOPT_HTTPHEADER, $http_headers);
@@ -341,7 +346,7 @@ function elxao_nc_propfind($relative)
             '<d:propfind xmlns:d="DAV:"><d:prop>' .
             '<d:resourcetype/><d:getcontentlength/><d:getlastmodified/>' .
             '</d:prop></d:propfind>';
-    [$code, , $resp] = elxao_nc_request('PROPFIND', $rel, [
+    [$code, $raw_headers, $resp] = elxao_nc_request('PROPFIND', $rel, [
         'Content-Type: text/xml; charset=UTF-8',
         'Depth: 1',
     ], $body);
@@ -350,6 +355,31 @@ function elxao_nc_propfind($relative)
             'status' => $code,
             'rel'    => $rel,
         ]);
+    }
+    if ($resp !== '') {
+        $encoding = '';
+        if (preg_match('/^Content-Encoding:\s*([^\r\n]+)/im', (string)$raw_headers, $m)) {
+            $encoding = strtolower(trim($m[1]));
+        }
+        if ($encoding === 'gzip' || ($encoding === '' && strncmp($resp, "\x1f\x8b", 2) === 0)) {
+            if (function_exists('gzdecode')) {
+                $decoded = @gzdecode($resp);
+                if ($decoded !== false && $decoded !== '') {
+                    $resp = $decoded;
+                }
+            }
+        } elseif ($encoding === 'deflate') {
+            $decoded = false;
+            if (function_exists('gzuncompress')) {
+                $decoded = @gzuncompress($resp);
+            }
+            if ($decoded === false && function_exists('gzinflate')) {
+                $decoded = @gzinflate($resp);
+            }
+            if ($decoded !== false && $decoded !== '') {
+                $resp = $decoded;
+            }
+        }
     }
     return $resp;
 }
