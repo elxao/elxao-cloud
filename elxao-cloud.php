@@ -255,8 +255,16 @@ function elxao_user_role_for_project($project_id, $user_id)
  * =========================================================== */
 function elxao_nc_url($relative)
 {
-    // Ensure exactly one slash between base and relative
-    return rtrim(ELXAO_NC_BASE, '/') . '/' . ltrim($relative, '/');
+    $base = rtrim(ELXAO_NC_BASE, '/');
+    $rel  = ltrim((string)$relative, '/');
+    if ($rel === '') {
+        return $base . '/';
+    }
+    $segments = explode('/', $rel);
+    $encoded  = array_map(static function ($segment) {
+        return rawurlencode((string)$segment);
+    }, $segments);
+    return $base . '/' . implode('/', $encoded);
 }
 
 /**
