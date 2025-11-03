@@ -917,10 +917,27 @@ function elxao_guard_and_paths($request, $need_write = false, $must_be_upload_fo
  */
 function elxao_api_cloud_list($request)
 {
-    [$role, $base, $sub, $full] = elxao_guard_and_paths($request, false, false);
+    [$role, $base, $sub, $full, $project_id] = elxao_guard_and_paths($request, false, false);
     $resp = elxao_nc_propfind($full);
     if (is_wp_error($resp)) {
-        elxao_rest_error($resp->get_error_message(), 500);
+        $status = 0;
+        $data   = $resp->get_error_data();
+        if (is_array($data) && isset($data['status'])) {
+            $status = (int)$data['status'];
+        }
+        // If the base folder is missing, attempt to recreate the standard tree once.
+        if (!$sub && $status === 404) {
+            $segments = elxao_project_segments($project_id);
+            if (elxao_mkcol_recursive_segments($segments)) {
+                foreach (['Uploads', 'Planning', 'Deliverables', 'Reports'] as $child) {
+                    elxao_nc_mkcol(implode('/', array_merge($segments, [$child])));
+                }
+                $resp = elxao_nc_propfind($full);
+            }
+        }
+        if (is_wp_error($resp)) {
+            elxao_rest_error($resp->get_error_message(), $status ?: 500);
+        }
     }
     $xml = @simplexml_load_string($resp);
     $out = [];
@@ -964,6 +981,31 @@ function elxao_api_cloud_list($request)
             $name  = basename($rel);
             $out[] = ['name' => $name, 'type' => $isDir ? 'dir' : 'file', 'size' => $size, 'mtime' => $mtime];
         }
+    }
+    if (!$sub) {
+        $existing = [];
+        foreach ($out as $item) {
+            if (($item['type'] ?? '') === 'dir') {
+                $existing[strtolower($item['name'])] = true;
+            }
+        }
+        $base_rel = trim($full, '/');
+        foreach (['Uploads', 'Planning', 'Deliverables', 'Reports'] as $folder) {
+            if (!isset($existing[strtolower($folder)])) {
+                if ($base_rel) {
+                    elxao_nc_mkcol($base_rel . '/' . $folder);
+                }
+                $out[] = ['name' => $folder, 'type' => 'dir', 'size' => 0, 'mtime' => ''];
+            }
+        }
+        usort($out, function ($a, $b) {
+            $typeA = $a['type'] ?? '';
+            $typeB = $b['type'] ?? '';
+            if ($typeA !== $typeB) {
+                return $typeA === 'dir' ? -1 : 1;
+            }
+            return strcasecmp($a['name'], $b['name']);
+        });
     }
     return new WP_REST_Response([
         'ok'   => true,
