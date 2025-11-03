@@ -175,11 +175,58 @@ function elxao_current_user_id()
     return get_current_user_id() ?: 0;
 }
 
+/**
+ * Normalize a user reference coming from ACF/meta into a plain user ID.
+ * Handles numeric IDs, strings like "user_123", WP_User objects and
+ * associative/linear arrays that may wrap the user data.
+ *
+ * @param mixed $raw Raw value from storage/UI.
+ * @return int User ID or 0 when it cannot be resolved.
+ */
+function elxao_normalize_user_id($raw)
+{
+    if (!$raw) {
+        return 0;
+    }
+    if (is_numeric($raw)) {
+        return (int)$raw;
+    }
+    if ($raw instanceof WP_User) {
+        return (int)$raw->ID;
+    }
+    if (is_object($raw)) {
+        if (isset($raw->ID)) {
+            return (int)$raw->ID;
+        }
+        $raw = (array)$raw;
+    }
+    if (is_array($raw)) {
+        if (isset($raw['ID'])) {
+            return (int)$raw['ID'];
+        }
+        if (isset($raw['id'])) {
+            return (int)$raw['id'];
+        }
+        if (isset($raw['user'])) {
+            return elxao_normalize_user_id($raw['user']);
+        }
+        $first = reset($raw);
+        if ($first !== false && $first !== null) {
+            return elxao_normalize_user_id($first);
+        }
+        return 0;
+    }
+    if (is_string($raw) && preg_match('/(\d+)/', $raw, $m)) {
+        return (int)$m[1];
+    }
+    return 0;
+}
+
 function elxao_project_participants($project_id)
 {
     return [
-        'client' => (int)(elxao_get_acf('client_user', $project_id) ?: 0),
-        'pm'     => (int)(elxao_get_acf('pm_user', $project_id) ?: 0),
+        'client' => elxao_normalize_user_id(elxao_get_acf('client_user', $project_id)),
+        'pm'     => elxao_normalize_user_id(elxao_get_acf('pm_user', $project_id)),
     ];
 }
 
@@ -844,7 +891,7 @@ function elxao_project_basepath($project_id)
     if ($stored && str_starts_with($stored, '/ELXAO/')) {
         return $stored;
     }
-    $client_id   = (int)elxao_get_acf('client_user', $project_id);
+    $client_id   = elxao_normalize_user_id(elxao_get_acf('client_user', $project_id));
     $client_slug = 'client-unknown';
     if ($client_id) {
         $u = get_userdata($client_id);
