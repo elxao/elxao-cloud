@@ -14,6 +14,7 @@ if (!defined('ABSPATH')) exit;
      ELXAO_NC_USER, ELXAO_NC_PASS, ELXAO_NC_BASE, ELXAO_NC_OCS_BASE, ELXAO_NC_TIMEOUT
    Optional (add only if you want):
      ELXAO_CLOUD_DEBUG (bool), ELXAO_CLOUD_HMAC_SECRET (string),
+     ELXAO_CLOUD_HMAC_TTL (int, seconds),
      ELXAO_CLOUD_MAX_UPLOAD_MB (int), ELXAO_CLOUD_ALLOWED_MIME (csv string),
      ELXAO_CLOUD_BLOCK_EXT (csv string), ELXAO_CLOUD_RATE_WINDOW_SEC (int),
      ELXAO_CLOUD_RATE_MAX_REQ (int), ELXAO_CLOUD_STREAM_CHUNK (int),
@@ -23,6 +24,7 @@ if (!defined('ABSPATH')) exit;
 if (!defined('ELXAO_CLOUD_DEBUG')) define('ELXAO_CLOUD_DEBUG', false);
 if (!defined('ELXAO_CLOUD_STREAM_CHUNK')) define('ELXAO_CLOUD_STREAM_CHUNK', 8192);
 if (!defined('ELXAO_CLOUD_MAX_UPLOAD_MB')) define('ELXAO_CLOUD_MAX_UPLOAD_MB', 128);
+if (!defined('ELXAO_CLOUD_HMAC_TTL')) define('ELXAO_CLOUD_HMAC_TTL', 43200); // 12 hours
 if (!defined('ELXAO_CLOUD_ALLOWED_MIME')) define('ELXAO_CLOUD_ALLOWED_MIME', 'application/pdf,image/png,image/jpeg,image/webp,application/zip,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/msword,text/plain');
 if (!defined('ELXAO_CLOUD_BLOCK_EXT')) define('ELXAO_CLOUD_BLOCK_EXT', 'php,php3,php4,php5,phtml,js,exe,sh,bat,cmd,com');
 if (!defined('ELXAO_CLOUD_RATE_WINDOW_SEC')) define('ELXAO_CLOUD_RATE_WINDOW_SEC', 60);
@@ -325,7 +327,10 @@ function elxao_cloud_verify_hmac(){
   $ts  = isset($_GET['ts']) ? (int)$_GET['ts'] : 0;
   $sig = isset($_GET['sig']) ? (string)$_GET['sig'] : '';
   if(!$ts||!$sig) elxao_rest_error('Missing signature',403);
-  if(abs(time()-$ts)>120) elxao_rest_error('Signature expired',403);
+  $now = time();
+  if($ts > ($now + 300)) elxao_rest_error('Signature time invalid',403);
+  $ttl = (int) ELXAO_CLOUD_HMAC_TTL;
+  if($ttl > 0 && ($now - $ts) > $ttl) elxao_rest_error('Signature expired',403);
   $user = elxao_current_user_id();
   $rest_base = get_rest_url(null,'elxao/v1');
   $sig_uri_path = function_exists('wp_parse_url') ? wp_parse_url($rest_base, PHP_URL_PATH) : parse_url($rest_base, PHP_URL_PATH);
