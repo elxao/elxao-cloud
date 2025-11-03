@@ -347,6 +347,87 @@ function elxao_nc_propfind($relative)
 }
 
 /**
+ * Retrieve directory names directly under a given Nextcloud path.
+ * Returns array of names on success or WP_Error on failure.
+ *
+ * @param string $relative Relative path under ELXAO_NC_BASE
+ * @return array|WP_Error
+ */
+function elxao_nc_list_directories($relative)
+{
+    $resp = elxao_nc_propfind($relative);
+    if (is_wp_error($resp)) {
+        return $resp;
+    }
+    $xml = @simplexml_load_string($resp);
+    if (!$xml) {
+        return [];
+    }
+    $ns     = $xml->getDocNamespaces(true);
+    $prefix = 'dav';
+    foreach ($ns as $p => $uri) {
+        if ($uri === 'DAV:') {
+            $prefix = $p ?: 'dav';
+            break;
+        }
+    }
+    $xml->registerXPathNamespace($prefix, 'DAV:');
+    $responses = $xml->xpath('//' . $prefix . ':response') ?: [];
+    $self      = rtrim(trim($relative, '/'), '/');
+    $dirs      = [];
+    foreach ($responses as $node) {
+        $hrefNode = $node->xpath('./' . $prefix . ':href');
+        if (!$hrefNode || !isset($hrefNode[0])) {
+            continue;
+        }
+        $decoded = rawurldecode((string)$hrefNode[0]);
+        $rel     = preg_replace('#^.*/remote\\.php/dav/files/[^/]+/#', '', $decoded);
+        $rel     = rtrim($rel, '/');
+        if ($rel === $self) {
+            continue;
+        }
+        $isDir = (bool)($node->xpath('.//' . $prefix . ':collection'));
+        if ($isDir) {
+            $dirs[] = basename($rel);
+        }
+    }
+    return $dirs;
+}
+
+/**
+ * Attempt to locate an existing Nextcloud folder for a project when the
+ * expected path is missing. Searches under /ELXAO for a directory whose
+ * name starts with the project reference followed by an underscore.
+ *
+ * @param int $project_id
+ * @return string Located absolute path (with leading slash) or empty string
+ */
+function elxao_locate_project_folder($project_id)
+{
+    $ref = (string)(elxao_get_acf('project_id', $project_id) ?: $project_id);
+    if ($ref === '') {
+        return '';
+    }
+    $prefix     = $ref . '_';
+    $clientDirs = elxao_nc_list_directories('ELXAO');
+    if (is_wp_error($clientDirs) || !$clientDirs) {
+        return '';
+    }
+    foreach ($clientDirs as $clientDir) {
+        $projectDirs = elxao_nc_list_directories('ELXAO/' . $clientDir);
+        if (is_wp_error($projectDirs) || !$projectDirs) {
+            continue;
+        }
+        foreach ($projectDirs as $dir) {
+            if (str_starts_with($dir, $prefix)) {
+                return '/ELXAO/' . $clientDir . '/' . $dir;
+            }
+        }
+    }
+    return '';
+}
+
+/**
  * Delete file or folder on Nextcloud. Returns true for 2xx status.
  *
  * @param string $relative Relative path to delete
@@ -974,12 +1055,20 @@ function elxao_api_cloud_list($request)
         }
         // If the base folder is missing, attempt to recreate the standard tree once.
         if (!$sub && $status === 404) {
-            $segments = elxao_project_segments($project_id);
-            if (elxao_mkcol_recursive_segments($segments)) {
-                foreach (['Uploads', 'Planning', 'Deliverables', 'Reports'] as $child) {
-                    elxao_nc_mkcol(implode('/', array_merge($segments, [$child])));
-                }
+            $located = elxao_locate_project_folder($project_id);
+            if ($located) {
+                $base = $located;
+                $full = trim($located, '/');
+                elxao_update_acf('cloud_folder_id', $located, $project_id);
                 $resp = elxao_nc_propfind($full);
+            } else {
+                $segments = elxao_project_segments($project_id);
+                if (elxao_mkcol_recursive_segments($segments)) {
+                    foreach (['Uploads', 'Planning', 'Deliverables', 'Reports'] as $child) {
+                        elxao_nc_mkcol(implode('/', array_merge($segments, [$child])));
+                    }
+                    $resp = elxao_nc_propfind($full);
+                }
             }
         }
         if (is_wp_error($resp)) {
