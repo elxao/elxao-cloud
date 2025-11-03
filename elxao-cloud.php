@@ -308,24 +308,29 @@ add_action('elxao_drive_create_folder', function($project_id, $client_user_id){
 /* ===========================================================
    REST SECURITY (rate limit + optional HMAC)
    =========================================================== */
+function elxao_rest_error($message, $status=400, $extra=[]){
+  $payload = array_merge(['ok'=>false,'message'=>(string)$message], $extra);
+  wp_send_json($payload, $status);
+}
+
 function elxao_cloud_check_rate(){
   $uid = elxao_current_user_id(); if(!$uid) return;
   $win=(int)ELXAO_CLOUD_RATE_WINDOW_SEC; $max=(int)ELXAO_CLOUD_RATE_MAX_REQ;
   $key='elxao_cloud_rate_'.$uid; $data=get_transient($key); $now=time();
   if(!$data) $data=['t'=>$now,'c'=>0]; if(($now-$data['t'])>$win) $data=['t'=>$now,'c'=>0];
-  $data['c']++; set_transient($key,$data,$win); if($data['c']>$max) wp_send_json_error(['message'=>'Rate limit exceeded'],429);
+  $data['c']++; set_transient($key,$data,$win); if($data['c']>$max) elxao_rest_error('Rate limit exceeded',429);
 }
 function elxao_cloud_verify_hmac(){
   if (!defined('ELXAO_CLOUD_HMAC_SECRET') || !ELXAO_CLOUD_HMAC_SECRET) return; // optional
   $ts  = isset($_GET['ts']) ? (int)$_GET['ts'] : 0;
   $sig = isset($_GET['sig']) ? (string)$_GET['sig'] : '';
-  if(!$ts||!$sig) wp_send_json_error(['message'=>'Missing signature'],403);
-  if(abs(time()-$ts)>120) wp_send_json_error(['message'=>'Signature expired'],403);
+  if(!$ts||!$sig) elxao_rest_error('Missing signature',403);
+  if(abs(time()-$ts)>120) elxao_rest_error('Signature expired',403);
   $user = elxao_current_user_id();
   $uri  = $_SERVER['REQUEST_URI'];
   $host = parse_url(home_url('/'), PHP_URL_HOST);
   $calc = hash_hmac('sha256', $user.'|'.$ts.'|'.$uri.'|'.$host, ELXAO_CLOUD_HMAC_SECRET);
-  if(!hash_equals($calc,$sig)) wp_send_json_error(['message'=>'Invalid signature'],403);
+  if(!hash_equals($calc,$sig)) elxao_rest_error('Invalid signature',403);
 }
 
 /* ===========================================================
@@ -360,11 +365,11 @@ function elxao_project_basepath($project_id){
 function elxao_sanitize_relpath($p){ $p=ltrim((string)$p,'/'); if(str_contains($p,'..')) return ''; return $p; }
 function elxao_guard_and_paths($request,$need_write=false,$must_be_upload_for_client=false){
   elxao_cloud_check_rate(); elxao_cloud_verify_hmac();
-  if(!is_user_logged_in()) wp_send_json_error(['message'=>'Auth required'],401);
-  $project_id=(int)$request->get_param('project_id'); if(!$project_id) wp_send_json_error(['message'=>'Missing project_id'],400);
+  if(!is_user_logged_in()) elxao_rest_error('Auth required',401);
+  $project_id=(int)$request->get_param('project_id'); if(!$project_id) elxao_rest_error('Missing project_id',400);
   $role = elxao_user_role_for_project($project_id, elxao_current_user_id());
-  if($role==='none'||$role==='guest') wp_send_json_error(['message'=>'Forbidden'],403);
-  if($need_write && $role==='client' && !$must_be_upload_for_client) wp_send_json_error(['message'=>'Clients cannot write here'],403);
+  if($role==='none'||$role==='guest') elxao_rest_error('Forbidden',403);
+  if($need_write && $role==='client' && !$must_be_upload_for_client) elxao_rest_error('Clients cannot write here',403);
   $base = elxao_project_basepath($project_id);
   $sub  = (string)$request->get_param('path'); $sub = $sub ? elxao_sanitize_relpath($sub) : '';
   $full = trim($base,'/').($sub?'/'.$sub:'');
@@ -375,7 +380,7 @@ function elxao_guard_and_paths($request,$need_write=false,$must_be_upload_for_cl
 function elxao_api_cloud_list($request){
   [$role,$base,$sub,$full] = elxao_guard_and_paths($request,false,false);
   $resp = elxao_nc_propfind($full);
-  if (is_wp_error($resp)) wp_send_json_error(['message'=>$resp->get_error_message()],500);
+  if (is_wp_error($resp)) elxao_rest_error($resp->get_error_message(),500);
   $xml = @simplexml_load_string($resp); $out=[];
   if($xml && isset($xml->response)){
     foreach($xml->response as $node){
@@ -419,19 +424,20 @@ function elxao_api_cloud_download($request){
 function elxao_api_cloud_upload($request){
   [$role,$base,$sub,$full,$project_id] = elxao_guard_and_paths($request,true,true);
   $uploads_root = trim($base,'/').'/'.ELXAO_CLOUD_CLIENT_UPLOAD_SUBFOLDER;
-  if($role==='client' && !str_starts_with($full,$uploads_root)) wp_send_json_error(['message'=>'Client uploads limited to /Uploads'],403);
+  if($role==='client' && !str_starts_with($full,$uploads_root)) elxao_rest_error('Client uploads limited to /Uploads',403);
   $filename = sanitize_file_name((string)($_SERVER['HTTP_X_FILE_NAME'] ?? ''));
-  if(!$filename) wp_send_json_error(['message'=>'Missing X-File-Name header'],400);
-  if(elxao_is_blocked_ext($filename)) wp_send_json_error(['message'=>'File type not allowed'],415);
+  if(!$filename) elxao_rest_error('Missing X-File-Name header',400);
+  if(elxao_is_blocked_ext($filename)) elxao_rest_error('File type not allowed',415);
   $content_length = isset($_SERVER['CONTENT_LENGTH']) ? (int)$_SERVER['CONTENT_LENGTH'] : 0;
   $max_bytes = (int)ELXAO_CLOUD_MAX_UPLOAD_MB*1024*1024;
-  if($content_length && $content_length>$max_bytes) wp_send_json_error(['message'=>'File too large'],413);
+  if($content_length && $content_length>$max_bytes) elxao_rest_error('File too large',413);
   $target_rel = $full.'/'.$filename;
-  $in = fopen('php://input','rb'); if(!$in) wp_send_json_error(['message'=>'Upload stream error'],500);
+  $in = fopen('php://input','rb');
+  if(!$in) elxao_rest_error('Upload stream error',500);
   $read_cb = function($ch,$fd,$len) use($in){ return fread($in,$len); };
   [$code] = elxao_nc_request('PUT',$target_rel,[],null,['read_cb'=>$read_cb,'infilesize'=>$content_length?:null]);
   fclose($in);
-  if($code<200||$code>=300) wp_send_json_error(['message'=>'Upload failed','status'=>$code],500);
+  if($code<200||$code>=300) elxao_rest_error('Upload failed',500,['status'=>$code]);
   return new WP_REST_Response(['ok'=>true,'path'=>$target_rel],200);
 }
 function elxao_ext($n){ $p=strrpos($n,'.'); return $p===false?'':strtolower(substr($n,$p+1)); }
@@ -441,38 +447,44 @@ function elxao_is_allowed_mime($m){ $allowed=array_map('trim',explode(',',ELXAO_
 /* MKDIR */
 function elxao_api_cloud_mkdir($request){
   [$role,$base,$sub,$full] = elxao_guard_and_paths($request,true,false);
-  if($role==='client') wp_send_json_error(['message'=>'Clients cannot create folders'],403);
-  $name = sanitize_file_name((string)$request->get_param('name')); if(!$name) wp_send_json_error(['message'=>'Missing name'],400);
+  if($role==='client') elxao_rest_error('Clients cannot create folders',403);
+  $name = sanitize_file_name((string)$request->get_param('name'));
+  if(!$name) elxao_rest_error('Missing name',400);
   $rel = rtrim($full,'/').'/'.$name; $ok = elxao_nc_mkcol($rel);
-  return $ok ? new WP_REST_Response(['ok'=>true],200) : wp_send_json_error(['message'=>'MKCOL failed'],500);
+  if(!$ok) elxao_rest_error('MKCOL failed',500);
+  return new WP_REST_Response(['ok'=>true],200);
 }
 
 /* RENAME */
 function elxao_api_cloud_rename($request){
   [$role,$base,$sub,$full] = elxao_guard_and_paths($request,true,false);
-  if($role==='client') wp_send_json_error(['message'=>'Clients cannot rename'],403);
+  if($role==='client') elxao_rest_error('Clients cannot rename',403);
   $new = sanitize_file_name((string)$request->get_param('new_name'));
-  if(!$new || !$sub) wp_send_json_error(['message'=>'Missing current path or new_name'],400);
+  if(!$new || !$sub) elxao_rest_error('Missing current path or new_name',400);
   $to = dirname($full).'/'.$new; $ok = elxao_nc_move($full,$to);
-  return $ok ? new WP_REST_Response(['ok'=>true,'to'=>$to],200) : wp_send_json_error(['message'=>'Rename failed'],500);
+  if(!$ok) elxao_rest_error('Rename failed',500);
+  return new WP_REST_Response(['ok'=>true,'to'=>$to],200);
 }
 
 /* MOVE */
 function elxao_api_cloud_move($request){
   [$role,$base,$sub,$full] = elxao_guard_and_paths($request,true,false);
-  if($role==='client') wp_send_json_error(['message'=>'Clients cannot move'],403);
-  $to_rel = elxao_sanitize_relpath((string)$request->get_param('to')); if(!$to_rel) wp_send_json_error(['message'=>'Invalid destination'],400);
+  if($role==='client') elxao_rest_error('Clients cannot move',403);
+  $to_rel = elxao_sanitize_relpath((string)$request->get_param('to'));
+  if(!$to_rel) elxao_rest_error('Invalid destination',400);
   $ok = elxao_nc_move($full,$to_rel);
-  return $ok ? new WP_REST_Response(['ok'=>true,'to'=>$to_rel],200) : wp_send_json_error(['message'=>'Move failed'],500);
+  if(!$ok) elxao_rest_error('Move failed',500);
+  return new WP_REST_Response(['ok'=>true,'to'=>$to_rel],200);
 }
 
 /* DELETE */
 function elxao_api_cloud_delete($request){
   [$role,$base,$sub,$full] = elxao_guard_and_paths($request,true,false);
-  if($role==='client') wp_send_json_error(['message'=>'Clients cannot delete'],403);
-  if(!$sub) wp_send_json_error(['message'=>'Nothing to delete'],400);
+  if($role==='client') elxao_rest_error('Clients cannot delete',403);
+  if(!$sub) elxao_rest_error('Nothing to delete',400);
   $ok = elxao_nc_delete($full);
-  return $ok ? new WP_REST_Response(['ok'=>true],200) : wp_send_json_error(['message'=>'Delete failed'],500);
+  if(!$ok) elxao_rest_error('Delete failed',500);
+  return new WP_REST_Response(['ok'=>true],200);
 }
 
 /* ===========================================================
@@ -482,29 +494,30 @@ function elxao_project_segments($project_id){ return explode('/',trim(elxao_proj
 function elxao_mkcol_recursive_segments($segments){ $acc=''; foreach($segments as $s){ $acc.=($acc?'/':'').$s; if(!elxao_nc_mkcol($acc)) return false; } return true; }
 
 function elxao_api_project_rebuild($request){
-  if(!is_user_logged_in()||!elxao_is_admin()) wp_send_json_error(['message'=>'Forbidden'],403);
-  $project_id=(int)$request->get_param('project_id'); if(!$project_id) wp_send_json_error(['message'=>'project_id required'],400);
+  if(!is_user_logged_in()||!elxao_is_admin()) elxao_rest_error('Forbidden',403);
+  $project_id=(int)$request->get_param('project_id'); if(!$project_id) elxao_rest_error('project_id required',400);
   $segs=elxao_project_segments($project_id);
-  if(!elxao_mkcol_recursive_segments($segs)) wp_send_json_error(['message'=>'Recreate base failed'],500);
+  if(!elxao_mkcol_recursive_segments($segs)) elxao_rest_error('Recreate base failed',500);
   foreach(['Uploads','Planning','Deliverables','Reports'] as $sub){ elxao_nc_mkcol(implode('/',array_merge($segs,[$sub]))); }
   $path='/'.implode('/',$segs); elxao_update_acf('cloud_folder_id',$path,$project_id);
   return new WP_REST_Response(['ok'=>true,'path'=>$path],200);
 }
 function elxao_api_project_delete($request){
-  if(!is_user_logged_in()||!elxao_is_admin()) wp_send_json_error(['message'=>'Forbidden'],403);
-  $project_id=(int)$request->get_param('project_id'); if(!$project_id) wp_send_json_error(['message'=>'project_id required'],400);
+  if(!is_user_logged_in()||!elxao_is_admin()) elxao_rest_error('Forbidden',403);
+  $project_id=(int)$request->get_param('project_id'); if(!$project_id) elxao_rest_error('project_id required',400);
   $path=trim(elxao_project_basepath($project_id),'/'); $ok=elxao_nc_delete($path);
-  return $ok ? new WP_REST_Response(['ok'=>true],200) : wp_send_json_error(['message'=>'Delete failed'],500);
+  if(!$ok) elxao_rest_error('Delete failed',500);
+  return new WP_REST_Response(['ok'=>true],200);
 }
 function elxao_api_project_rename($request){
-  if(!is_user_logged_in()||!elxao_is_admin()) wp_send_json_error(['message'=>'Forbidden'],403);
+  if(!is_user_logged_in()||!elxao_is_admin()) elxao_rest_error('Forbidden',403);
   $project_id=(int)$request->get_param('project_id'); $new_slug=elxao_slug((string)$request->get_param('new_slug'));
-  if(!$project_id||!$new_slug) wp_send_json_error(['message'=>'project_id and new_slug required'],400);
+  if(!$project_id||!$new_slug) elxao_rest_error('project_id and new_slug required',400);
   $base=elxao_project_basepath($project_id); $segs=explode('/',trim($base,'/')); array_pop($segs);
   $ref=(string)( elxao_get_acf('project_id',$project_id) ?: $project_id ); $new_last=$ref.'_'.$new_slug;
   $to=implode('/',array_merge($segs,[$new_last]));
   $ok=elxao_nc_move(trim($base,'/'),$to);
-  if(!$ok) wp_send_json_error(['message'=>'Rename failed'],500);
+  if(!$ok) elxao_rest_error('Rename failed',500);
   elxao_update_acf('project_name',$new_slug,$project_id);
   elxao_update_acf('cloud_folder_id','/'.$to,$project_id);
   return new WP_REST_Response(['ok'=>true,'path'=>'/'.$to],200);
