@@ -355,6 +355,53 @@ function elxao_nc_propfind($relative)
 }
 
 /**
+ * Normalise a WebDAV href returned by Nextcloud into a relative path under
+ * the configured ELXAO_NC_BASE.
+ *
+ * Handles absolute URLs, xml:base-relative paths and double slashes while
+ * stripping the leading user namespace portion so the caller can compare the
+ * value directly with project-relative paths.
+ *
+ * @param string $href Href value from a PROPFIND response
+ * @return string Normalised, trimmed relative path
+ */
+function elxao_nc_normalize_href($href)
+{
+    $decoded = rawurldecode((string)$href);
+    $path    = $decoded;
+
+    if (str_contains($path, '://')) {
+        $url_path = parse_url($path, PHP_URL_PATH);
+        if (is_string($url_path)) {
+            $path = $url_path;
+        }
+    }
+
+    if (($qpos = strpos($path, '?')) !== false) {
+        $path = substr($path, 0, $qpos);
+    }
+    if (($hpos = strpos($path, '#')) !== false) {
+        $path = substr($path, 0, $hpos);
+    }
+
+    $path = str_replace('\\', '/', $path);
+    $path = preg_replace('#/{2,}#', '/', $path);
+    $path = ltrim((string)$path, '/');
+
+    $base_path = parse_url(ELXAO_NC_BASE, PHP_URL_PATH);
+    $base_path = $base_path ? trim($base_path, '/') : '';
+    if ($base_path !== '') {
+        if ($path === $base_path) {
+            $path = '';
+        } elseif (str_starts_with($path, $base_path . '/')) {
+            $path = substr($path, strlen($base_path) + 1);
+        }
+    }
+
+    return trim($path, '/');
+}
+
+/**
  * Delete file or folder on Nextcloud. Returns true for 2xx status.
  *
  * @param string $relative Relative path to delete
@@ -1011,31 +1058,65 @@ function elxao_api_cloud_list($request)
             $prefix = 'dav';
         }
         $xml->registerXPathNamespace($prefix, $davUri);
-        $responses = $xml->xpath('//' . $prefix . ':response') ?: [];
-        $self      = rtrim(trim($full, '/'), '/');
+        $responses   = $xml->xpath('//' . $prefix . ':response') ?: [];
+        $self        = trim($full, '/');
+        $self_prefix = $self !== '' ? $self . '/' : '';
+        $items       = [];
         foreach ($responses as $node) {
             $hrefNode = $node->xpath('./' . $prefix . ':href');
             if (!$hrefNode || !isset($hrefNode[0])) {
                 continue;
             }
-            $href    = (string)$hrefNode[0];
-            $decoded = rawurldecode($href);
-            // Strip user path prefix
-            $rel = preg_replace('#^.*/remote\.php/dav/files/[^/]+/#', '', $decoded);
-            $rel = rtrim($rel, '/');
-            if ($rel === rtrim($self, '/')) {
+            $rel_full = elxao_nc_normalize_href((string)$hrefNode[0]);
+            if ($rel_full === $self) {
                 continue; // Skip parent directory itself
+            }
+            if ($self !== '') {
+                if (!str_starts_with($rel_full, $self_prefix)) {
+                    continue;
+                }
+                $rel = substr($rel_full, strlen($self_prefix));
+            } else {
+                $rel = $rel_full;
+            }
+            $rel = trim($rel, '/');
+            if ($rel === '') {
+                continue;
+            }
+            if (str_contains($rel, '/')) {
+                // Depth: 1 should not return deeper items, but guard against
+                // xml:base oddities by only keeping the immediate child name.
+                $parts = explode('/', $rel, 2);
+                $rel   = $parts[0];
+            }
+            $name = $rel;
+            if ($name === '') {
+                continue;
             }
             // Determine if directory
             $isDir = (bool)($node->xpath('.//' . $prefix . ':collection'));
             // Fetch size and mtime if available
             $sizeNode  = $node->xpath('.//' . $prefix . ':getcontentlength');
             $mtimeNode = $node->xpath('.//' . $prefix . ':getlastmodified');
-            $size  = $sizeNode && isset($sizeNode[0]) ? (int)$sizeNode[0] : 0;
-            $mtime = $mtimeNode && isset($mtimeNode[0]) ? (string)$mtimeNode[0] : '';
-            $name  = basename($rel);
-            $out[] = ['name' => $name, 'type' => $isDir ? 'dir' : 'file', 'size' => $size, 'mtime' => $mtime];
+            $size      = $sizeNode && isset($sizeNode[0]) ? (int)$sizeNode[0] : 0;
+            $mtime     = $mtimeNode && isset($mtimeNode[0]) ? (string)$mtimeNode[0] : '';
+            $key       = strtolower($name);
+            if (isset($items[$key])) {
+                // Prefer directory classification if any response marks it so.
+                if ($isDir && ($items[$key]['type'] ?? '') !== 'dir') {
+                    $items[$key]['type'] = 'dir';
+                    $items[$key]['size'] = 0;
+                }
+                continue;
+            }
+            $items[$key] = [
+                'name' => $name,
+                'type' => $isDir ? 'dir' : 'file',
+                'size' => $isDir ? 0 : $size,
+                'mtime'=> $mtime,
+            ];
         }
+        $out = array_values($items);
     }
     if (!$sub) {
         $existing = [];
