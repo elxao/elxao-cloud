@@ -1441,31 +1441,34 @@ JS
     // Register inline CSS for explorer
     wp_register_style('elxao-cloud-explorer-css', false, [], '1.25.3');
     wp_add_inline_style('elxao-cloud-explorer-css', <<<CSS
-.elxao-explorer{border:1px solid #eee;border-radius:14px;padding:10px;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Helvetica,Arial,sans-serif;outline:none}
-.elxao-explorer.drag{box-shadow:0 0 0 3px rgba(0,120,255,.15)}
-.ex-toolbar{display:flex;align-items:center;gap:8px;margin-bottom:8px}
-.ex-btn{padding:6px 10px;border:1px solid #ddd;border-radius:8px;background:#fafafa;cursor:pointer}
-.ex-btn:disabled{opacity:.5;cursor:not-allowed}
-.ex-flex{flex:1}
-.ex-sep{width:1px;height:22px;background:#e5e5e5}
-.ex-breadcrumb{font-size:12px;color:#666;margin:4px 0 8px 0}
-.ex-crumb{cursor:pointer;user-select:none}
-.ex-crumb.active{font-weight:600;color:#111}
-.ex-sep{padding:0 6px;color:#aaa}
-.ex-content{min-height:220px}
-.ex-gridview{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
-.ex-card{display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:12px;border:1px solid #eee;border-radius:12px;background:#fff;cursor:pointer;text-align:left}
-.ex-card:hover{box-shadow:0 2px 10px rgba(0,0,0,.06)}
-.ex-card.selected{outline:2px solid #1473e6}
-.ex-ico{width:28px;height:28px}
-.ex-card.dir .ex-ico{background:currentColor;mask:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 4l2 2h8a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V6a2 2 0 012-2h6z"/></svg>') no-repeat 50% 50%/contain;color:#111}
-.ex-card.file .ex-ico{background:currentColor;mask:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M6 2h7l5 5v13a2 2 0 01-2 2H6a2 2 0 01-2-2V4a2 2 0 012-2z"/></svg>') no-repeat 50% 50%/contain;color:#555}
-.ex-name{font-size:13px;color:#111;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
-.ex-listview{width:100%;border-collapse:collapse}
-.ex-listview th,.ex-listview td{padding:8px;border-bottom:1px solid #eee;text-align:left;font-size:13px}
-.ex-listview tr:hover{background:#fafafa}
-.ex-listview tr.selected{outline:2px solid #1473e6}
-.ex-status{font-size:12px;color:#777;margin-top:6px}
+.elxao-explorer{border:1px solid rgba(240,240,245,.9);border-radius:18px;padding:16px;background:linear-gradient(180deg,#fff 0%,#f9f7fb 100%);font-family:"SF Pro Text",system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Helvetica,Arial,sans-serif;outline:none;box-shadow:0 16px 40px rgba(15,23,42,.08)}
+.elxao-explorer.drag{box-shadow:0 0 0 3px rgba(236,72,153,.2)}
+.ex-toolbar{display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap}
+.ex-btn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border:1px solid rgba(244,114,182,.35);border-radius:999px;background:rgba(255,255,255,.85);color:#db2777;font-weight:600;cursor:pointer;box-shadow:0 4px 10px rgba(219,39,119,.08);transition:all .2s ease}
+.ex-btn:hover:not(:disabled){background:linear-gradient(135deg,#fff 0%,#ffe4f2 100%);box-shadow:0 6px 16px rgba(219,39,119,.12)}
+.ex-btn:focus-visible{outline:2px solid rgba(219,39,119,.4);outline-offset:2px}
+.ex-btn:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
+.ex-flex{flex:1 1 auto}
+.ex-toolbar .ex-sep{width:1px;height:26px;background:rgba(244,114,182,.2)}
+.ex-breadcrumb{font-size:13px;color:#9ca3af;margin:6px 0 12px 0;display:flex;align-items:center;gap:8px}
+.ex-crumb{cursor:pointer;user-select:none;padding:4px 10px;border-radius:999px;transition:background .2s ease,color .2s ease}
+.ex-crumb:hover{background:rgba(244,114,182,.12);color:#be185d}
+.ex-crumb.active{font-weight:600;color:#be185d;background:rgba(244,114,182,.15)}
+.ex-breadcrumb .ex-sep{padding:0;color:#e5e7eb;font-size:18px;line-height:1}
+.ex-content{min-height:240px}
+.ex-gridview{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:14px}
+.ex-card{display:flex;flex-direction:column;align-items:flex-start;gap:10px;padding:16px;border:1px solid rgba(226,232,240,.8);border-radius:16px;background:rgba(255,255,255,.9);cursor:pointer;text-align:left;transition:transform .2s ease,box-shadow .2s ease,border-color .2s ease}
+.ex-card:hover{transform:translateY(-2px);box-shadow:0 12px 24px rgba(15,23,42,.08);border-color:rgba(244,114,182,.4)}
+.ex-card.selected{border-color:#db2777;box-shadow:0 0 0 2px rgba(219,39,119,.15)}
+.ex-ico{width:32px;height:32px}
+.ex-card.dir .ex-ico{background:currentColor;mask:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="M10 4l2 2h8a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V6a2 2 0 012-2h6z"/></svg>') no-repeat 50% 50%/contain;color:#111}
+.ex-card.file .ex-ico{background:currentColor;mask:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="M6 2h7l5 5v13a2 2 0 01-2 2H6a2 2 0 01-2-2V4a2 2 0 012-2z"/></svg>') no-repeat 50% 50%/contain;color:#4b5563}
+.ex-name{font-size:14px;color:#111;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;font-weight:500}
+.ex-listview{width:100%;border-collapse:collapse;background:rgba(255,255,255,.85);border-radius:14px;overflow:hidden;box-shadow:0 10px 24px rgba(15,23,42,.05)}
+.ex-listview th,.ex-listview td{padding:10px 12px;border-bottom:1px solid rgba(226,232,240,.8);text-align:left;font-size:13px;color:#374151}
+.ex-listview tr:hover{background:rgba(244,114,182,.08)}
+.ex-listview tr.selected{background:rgba(244,114,182,.18);color:#be185d}
+.ex-status{font-size:12px;color:#6b7280;margin-top:10px}
 CSS
 );
 });
