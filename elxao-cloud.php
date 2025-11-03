@@ -396,31 +396,51 @@ function elxao_api_cloud_list($request){
 
   if ($xml) {
     $ns = $xml->getDocNamespaces(true);
-    // 'd' or 'D' are commonly used; fall back gracefully
-    $d  = isset($ns['d']) ? 'd' : (isset($ns['D']) ? 'D' : 'd');
-    $responses = $xml->xpath('//'.$d.':response') ?: [];
+    $davNs = $ns['d'] ?? ($ns['D'] ?? ($ns['D:'] ?? null));
+    if ($davNs) {
+      $xml->registerXPathNamespace('dav', $davNs);
+    }
 
-    $self = rtrim(trim($full,'/'),'/');
+    $responses = $xml->xpath('//'.($davNs ? 'dav:' : '').'response') ?: [];
+
+    $self = trim($full,'/');
+    $base_trim = trim($base,'/');
 
     foreach ($responses as $node) {
-      $hrefNode = $node->xpath('./'.$d.':href');
+      $hrefNode = $node->xpath('./'.($davNs ? 'dav:' : '').'href');
       if (!$hrefNode || !isset($hrefNode[0])) continue;
 
       $href = (string)$hrefNode[0];
       $decoded = rawurldecode($href);
+      $path = parse_url($decoded, PHP_URL_PATH);
+      if ($path === null || $path === false) {
+        $path = $decoded;
+      }
+      $path = ltrim((string)$path,'/');
+      // Strip the DAV base (remote.php/dav/files/<user>/)
+      $path = preg_replace('#^remote\.php/dav/files/[^/]+/#i','',$path);
+      $rel = rtrim($path,'/');
 
-      $rel = preg_replace('#^.*/remote\.php/dav/files/[^/]+/#','',$decoded);
-      $rel = rtrim($rel,'/');
+      if ($rel === '') continue;
 
-      if ($rel === rtrim($self,'/')) continue;
+      if ($self !== '' && $rel === $self) continue; // skip the folder we queried
+      if ($self !== '' && str_starts_with($rel, $self.'/')) {
+        $rel = substr($rel, strlen($self)+1);
+      } elseif ($self === '' && $base_trim !== '' && str_starts_with($rel, $base_trim.'/')) {
+        $rel = substr($rel, strlen($base_trim)+1);
+      } elseif ($rel === $base_trim) {
+        continue;
+      }
 
-      $isDir = (bool) ($node->xpath('.//'.$d.':collection'));
-      $sizeNode  = $node->xpath('.//'.$d.':getcontentlength');
-      $mtimeNode = $node->xpath('.//'.$d.':getlastmodified');
+      $name = basename($rel);
+      if ($name === '') continue;
+
+      $isDir = (bool) ($node->xpath('.//'.($davNs ? 'dav:' : '').'collection'));
+      $sizeNode  = $node->xpath('.//'.($davNs ? 'dav:' : '').'getcontentlength');
+      $mtimeNode = $node->xpath('.//'.($davNs ? 'dav:' : '').'getlastmodified');
       $size  = $sizeNode && isset($sizeNode[0]) ? (int)$sizeNode[0] : 0;
       $mtime = $mtimeNode && isset($mtimeNode[0]) ? (string)$mtimeNode[0] : '';
 
-      $name = basename($rel);
       $out[] = ['name'=>$name,'type'=>$isDir?'dir':'file','size'=>$size,'mtime'=>$mtime];
     }
   }
