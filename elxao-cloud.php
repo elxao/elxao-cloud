@@ -362,13 +362,38 @@ function elxao_nc_propfind($relative)
  * stripping the leading user namespace portion so the caller can compare the
  * value directly with project-relative paths.
  *
- * @param string $href Href value from a PROPFIND response
+ * @param string $href     Href value from a PROPFIND response
+ * @param string $xml_base Optional xml:base attribute from the response node
  * @return string Normalised, trimmed relative path
  */
-function elxao_nc_normalize_href($href)
+function elxao_nc_normalize_href($href, $xml_base = '')
 {
     $decoded = rawurldecode((string)$href);
     $path    = $decoded;
+
+    $xml_base = rawurldecode((string)$xml_base);
+    if ($xml_base !== '') {
+        if (($qpos = strpos($xml_base, '?')) !== false) {
+            $xml_base = substr($xml_base, 0, $qpos);
+        }
+        if (($hpos = strpos($xml_base, '#')) !== false) {
+            $xml_base = substr($xml_base, 0, $hpos);
+        }
+    }
+
+    $is_href_absolute = str_starts_with($path, '/') || str_contains($path, '://');
+    if (!$is_href_absolute && $xml_base !== '') {
+        $base_path = $xml_base;
+        if (str_contains($base_path, '://')) {
+            $parsed = parse_url($base_path, PHP_URL_PATH);
+            if (is_string($parsed)) {
+                $base_path = $parsed;
+            }
+        }
+        if (is_string($base_path) && $base_path !== '') {
+            $path = rtrim($base_path, '/') . '/' . ltrim($path, '/');
+        }
+    }
 
     if (str_contains($path, '://')) {
         $url_path = parse_url($path, PHP_URL_PATH);
@@ -1067,7 +1092,9 @@ function elxao_api_cloud_list($request)
             if (!$hrefNode || !isset($hrefNode[0])) {
                 continue;
             }
-            $rel_full = elxao_nc_normalize_href((string)$hrefNode[0]);
+            $xml_base_attr = $node->attributes('xml', true);
+            $xml_base      = ($xml_base_attr && isset($xml_base_attr['base'])) ? (string)$xml_base_attr['base'] : '';
+            $rel_full      = elxao_nc_normalize_href((string)$hrefNode[0], $xml_base);
             if ($rel_full === $self) {
                 continue; // Skip parent directory itself
             }
