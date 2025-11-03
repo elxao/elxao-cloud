@@ -1062,13 +1062,19 @@ function elxao_api_cloud_list($request)
             return strcasecmp($a['name'], $b['name']);
         });
     }
-    return new WP_REST_Response([
+    $response = new WP_REST_Response([
         'ok'   => true,
         'base' => $base,
         'path' => $sub,
         'items'=> $out,
         'role' => $role,
     ], 200);
+    $response->set_headers([
+        'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
+        'Pragma'        => 'no-cache',
+    ]);
+
+    return $response;
 }
 
 /*
@@ -1472,7 +1478,7 @@ add_action('wp_enqueue_scripts', function () {
   function load(root, pushHist = true){
     const url = api(ELXAO_CLOUD.restBase, 'cloud/list', {project_id: ELXAO_CLOUD.projectId, path: S.path});
     setStatus(root,'Loading...');
-    fetch(url,{headers: restHeaders()}).then(r => r.json()).then(j => {
+    fetch(url,{headers: restHeaders(), cache:'no-store'}).then(r => r.json()).then(j => {
       if(!j || !j.ok) throw new Error(j && j.message || 'Load failed');
       if(pushHist){ S.history.push(S.path); if(S.history.length > 50) S.history.shift(); }
       renderBreadcrumb(root, S.path);
