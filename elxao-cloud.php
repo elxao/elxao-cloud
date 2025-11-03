@@ -512,11 +512,12 @@ function elxao_api_project_rename($request){
 
 /* ===========================================================
    Embedded UI (Simple Viewer): [elxao_cloud project_id="auto"]
+   Legacy alias supported: [elxao_cloud_browser project_id="auto"]
    - Lands inside project root and shows ONLY the 4 subfolders
    - Inside "Uploads" shows an inline "Upload here" button (clients only)
    - No toolbar, no Up button; a tiny breadcrumb is clickable
    =========================================================== */
-add_shortcode('elxao_cloud', function($atts){
+function elxao_render_cloud_shortcode($atts){
   $a = shortcode_atts(['project_id'=>'auto'], $atts, 'elxao_cloud');
   $pid = $a['project_id']==='auto' ? (int)get_the_ID() : (int)$a['project_id'];
   if(!$pid) return '<div class="elxao-cloud-error">Missing project_id</div>';
@@ -550,7 +551,10 @@ add_shortcode('elxao_cloud', function($atts){
     </div>
   </div>
   <?php return ob_get_clean();
-});
+}
+
+add_shortcode('elxao_cloud', 'elxao_render_cloud_shortcode');
+add_shortcode('elxao_cloud_browser', 'elxao_render_cloud_shortcode');
 
 /* Inline JS/CSS (Simple Viewer) so it works immediately */
 add_action('wp_enqueue_scripts', function(){
