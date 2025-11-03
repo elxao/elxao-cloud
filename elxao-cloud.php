@@ -1341,9 +1341,17 @@ function elxao_render_cloud_shortcode($atts)
         'chunk'      => (int)ELXAO_CLOUD_STREAM_CHUNK,
     ]);
     ob_start();
+    $drawer_id = 'elxao-explorer-' . uniqid();
     ?>
-    <div class="elxao-explorer" data-role="<?php echo esc_attr($role); ?>" tabindex="0">
-        <div class="ex-toolbar">
+    <div class="elxao-explorer-wrapper">
+        <button class="ex-btn ex-launch" type="button" aria-expanded="false" aria-controls="<?php echo esc_attr($drawer_id); ?>">
+            <span class="ex-launch-icon" aria-hidden="true"></span>
+            <span><?php esc_html_e('Project files', 'elxao-cloud'); ?></span>
+        </button>
+        <div class="elxao-explorer-overlay" aria-hidden="true"></div>
+        <div id="<?php echo esc_attr($drawer_id); ?>" class="elxao-explorer-drawer" role="dialog" aria-modal="true" aria-hidden="true">
+            <div class="elxao-explorer" data-role="<?php echo esc_attr($role); ?>" tabindex="0">
+                <div class="ex-toolbar">
             <button class="ex-btn ex-back" type="button" title="Back">←</button>
             <button class="ex-btn ex-up" type="button" title="Up one level">↑</button>
             <div class="ex-sep"></div>
@@ -1356,16 +1364,18 @@ function elxao_render_cloud_shortcode($atts)
             <button class="ex-btn ex-upload" type="button" title="Upload">Upload</button>
             <div class="ex-flex"></div>
             <button class="ex-btn ex-view ex-grid" type="button" title="Grid/List">☰</button>
+                </div>
+                <div class="ex-breadcrumb"></div>
+                <div class="ex-content">
+                    <div class="ex-gridview"></div>
+                    <table class="ex-listview" style="display:none">
+                        <thead><tr><th>Name</th><th>Type</th><th>Size</th><th>Modified</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+                <div class="ex-status"></div>
+            </div>
         </div>
-        <div class="ex-breadcrumb"></div>
-        <div class="ex-content">
-            <div class="ex-gridview"></div>
-            <table class="ex-listview" style="display:none">
-                <thead><tr><th>Name</th><th>Type</th><th>Size</th><th>Modified</th></tr></thead>
-                <tbody></tbody>
-            </table>
-        </div>
-        <div class="ex-status"></div>
     </div>
     <?php
     return ob_get_clean();
@@ -1433,7 +1443,76 @@ add_action('wp_enqueue_scripts', function () {
     upbtn.onclick = () => file.click(); file.onchange = () => { const f = file.files[0]; if(!f) return; upbtn.disabled = true; upbtn.textContent = 'Uploading...'; const url = api(ELXAO_CLOUD.restBase, 'cloud/upload', {project_id: ELXAO_CLOUD.projectId, path: S.path}); fetch(url, { method:'POST', headers: Object.assign({'Content-Type':'application/octet-stream','X-File-Name': f.name,'X-File-Type': (f.type || '')}, restHeaders()), body: f }).then(r => r.json()).then(j => { if(!j || !j.ok) throw new Error(j && j.message || 'Upload failed'); }).catch(err => alert(err.message || 'Upload error')).finally(() => { upbtn.disabled = false; upbtn.textContent = 'Upload'; file.value = ''; load(root,false); }); };
     root.addEventListener('dragover', e => { e.preventDefault(); root.classList.add('drag'); }); root.addEventListener('dragleave', () => root.classList.remove('drag')); root.addEventListener('drop', e => { e.preventDefault(); root.classList.remove('drag'); if(!e.dataTransfer.files || !e.dataTransfer.files.length) return; const f = e.dataTransfer.files[0]; const url = api(ELXAO_CLOUD.restBase, 'cloud/upload', {project_id: ELXAO_CLOUD.projectId, path: S.path}); fetch(url, { method:'POST', headers: Object.assign({'Content-Type':'application/octet-stream','X-File-Name': f.name,'X-File-Type': (f.type || '')}, restHeaders()), body: f }).then(r => r.json()).then(j => { if(!j || !j.ok) throw new Error(j && j.message || 'Upload failed'); }).catch(err => alert(err.message || 'Upload error')).finally(() => load(root,false)); }); toggle.onclick = () => { S.grid = !S.grid; const grid = root.querySelector('.ex-gridview'); const list = root.querySelector('.ex-listview'); if(S.grid){ grid.style.display = 'grid'; list.style.display = 'none'; toggle.classList.add('ex-grid'); } else { grid.style.display = 'none'; list.style.display = 'table'; toggle.classList.remove('ex-grid'); } };
     root.addEventListener('keydown', (e) => { if(e.key === 'Backspace'){ e.preventDefault(); S.path = upPath(S.path); load(root); } if(e.key === 'Enter' && S.selected){ const el = root.querySelector('.ex-card.selected') || root.querySelector('.ex-listview tr.selected'); if(el){ const name = el.getAttribute('data-name'); if(!name) return; const itType = el.classList.contains('dir') ? 'dir' : (el.querySelector('td:nth-child(2)')?.textContent || 'file'); itemOpen(root,{name, type: itType}); } } }); }
-  function init(){ document.querySelectorAll('.elxao-explorer').forEach(root => { setRoleActions(root); attachToolbar(root); load(root); }); }
+  function initExplorer(root){
+    if(root.__elxaoInit) return;
+    root.__elxaoInit = true;
+    S.path = '';
+    S.history = [];
+    S.selected = null;
+    setRoleActions(root);
+    attachToolbar(root);
+    load(root);
+  }
+  function setupWrappers(){
+    document.querySelectorAll('.elxao-explorer-wrapper').forEach(wrapper => {
+      if(wrapper.__elxaoDrawerInit) return;
+      wrapper.__elxaoDrawerInit = true;
+      const toggle = wrapper.querySelector('.ex-launch');
+      const drawer = wrapper.querySelector('.elxao-explorer-drawer');
+      if(!toggle || !drawer) return;
+      const overlay = wrapper.querySelector('.elxao-explorer-overlay');
+      const explorer = drawer.querySelector('.elxao-explorer');
+      let initialized = false;
+      function ensureInit(){
+        if(!initialized && explorer){
+          initExplorer(explorer);
+          initialized = true;
+        }
+      }
+      function onKeydown(e){
+        if(e.key === 'Escape' && wrapper.classList.contains('is-open')){
+          e.preventDefault();
+          closeDrawer();
+        }
+      }
+      function openDrawer(){
+        ensureInit();
+        wrapper.classList.add('is-open');
+        toggle.setAttribute('aria-expanded','true');
+        drawer.setAttribute('aria-hidden','false');
+        if(overlay) overlay.setAttribute('aria-hidden','false');
+        document.addEventListener('keydown', onKeydown);
+        const focusTarget = explorer || drawer;
+        window.requestAnimationFrame(() => {
+          if(focusTarget) focusTarget.focus({preventScroll:true});
+        });
+      }
+      function closeDrawer(){
+        wrapper.classList.remove('is-open');
+        toggle.setAttribute('aria-expanded','false');
+        drawer.setAttribute('aria-hidden','true');
+        if(overlay) overlay.setAttribute('aria-hidden','true');
+        document.removeEventListener('keydown', onKeydown);
+        window.requestAnimationFrame(() => {
+          if(toggle) toggle.focus({preventScroll:true});
+        });
+      }
+      toggle.addEventListener('click', () => {
+        if(wrapper.classList.contains('is-open')) closeDrawer(); else openDrawer();
+      });
+      if(overlay){
+        overlay.addEventListener('click', closeDrawer);
+      }
+    });
+  }
+  function init(){
+    setupWrappers();
+    document.querySelectorAll('.elxao-explorer').forEach(root => {
+      if(!root.closest('.elxao-explorer-drawer')){
+        initExplorer(root);
+      }
+    });
+  }
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();
 JS
@@ -1441,7 +1520,15 @@ JS
     // Register inline CSS for explorer
     wp_register_style('elxao-cloud-explorer-css', false, [], '1.25.3');
     wp_add_inline_style('elxao-cloud-explorer-css', <<<CSS
-.elxao-explorer{border:1px solid rgba(240,240,245,.9);border-radius:18px;padding:16px;background:linear-gradient(180deg,#fff 0%,#f9f7fb 100%);font-family:"SF Pro Text",system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Helvetica,Arial,sans-serif;outline:none;box-shadow:0 16px 40px rgba(15,23,42,.08)}
+.elxao-explorer-wrapper{position:relative;display:inline-block}
+.ex-launch{margin-bottom:12px;padding:12px 18px;font-size:15px;box-shadow:0 10px 24px rgba(219,39,119,.15)}
+.ex-launch-icon{width:20px;height:20px;background:currentColor;mask:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="M4 4a2 2 0 012-2h6l2 2h6a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V4z"/></svg>') no-repeat 50% 50%/contain}
+.elxao-explorer-overlay{position:fixed;inset:0;background:rgba(15,23,42,.45);opacity:0;pointer-events:none;transition:opacity .28s ease;z-index:10000}
+.elxao-explorer-drawer{position:fixed;top:0;right:0;height:100vh;width:420px;max-width:92vw;padding:32px 28px;background:transparent;display:flex;align-items:stretch;justify-content:flex-end;transform:translateX(100%);transition:transform .28s ease;z-index:10001;pointer-events:none}
+.elxao-explorer-wrapper.is-open .elxao-explorer-overlay{opacity:1;pointer-events:auto}
+.elxao-explorer-wrapper.is-open .elxao-explorer-drawer{transform:translateX(0);pointer-events:auto}
+.elxao-explorer{border:1px solid rgba(240,240,245,.9);border-radius:18px;padding:16px;background:linear-gradient(180deg,#fff 0%,#f9f7fb 100%);font-family:"SF Pro Text",system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Helvetica,Arial,sans-serif;outline:none;box-shadow:0 16px 40px rgba(15,23,42,.08);display:flex;flex-direction:column;max-height:100%;overflow:hidden}
+.elxao-explorer-drawer .elxao-explorer{width:100%;height:100%;max-height:none}
 .elxao-explorer.drag{box-shadow:0 0 0 3px rgba(236,72,153,.2)}
 .ex-toolbar{display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap}
 .ex-btn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border:1px solid rgba(244,114,182,.35);border-radius:999px;background:rgba(255,255,255,.85);color:#db2777;font-weight:600;cursor:pointer;box-shadow:0 4px 10px rgba(219,39,119,.08);transition:all .2s ease}
@@ -1455,7 +1542,7 @@ JS
 .ex-crumb:hover{background:rgba(244,114,182,.12);color:#be185d}
 .ex-crumb.active{font-weight:600;color:#be185d;background:rgba(244,114,182,.15)}
 .ex-breadcrumb .ex-sep{padding:0;color:#e5e7eb;font-size:18px;line-height:1}
-.ex-content{min-height:240px}
+.ex-content{min-height:240px;flex:1 1 auto;overflow:auto}
 .ex-gridview{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:14px}
 .ex-card{display:flex;flex-direction:column;align-items:flex-start;gap:10px;padding:16px;border:1px solid rgba(226,232,240,.8);border-radius:16px;background:rgba(255,255,255,.9);cursor:pointer;text-align:left;transition:transform .2s ease,box-shadow .2s ease,border-color .2s ease}
 .ex-card:hover{transform:translateY(-2px);box-shadow:0 12px 24px rgba(15,23,42,.08);border-color:rgba(244,114,182,.4)}
@@ -1469,6 +1556,10 @@ JS
 .ex-listview tr:hover{background:rgba(244,114,182,.08)}
 .ex-listview tr.selected{background:rgba(244,114,182,.18);color:#be185d}
 .ex-status{font-size:12px;color:#6b7280;margin-top:10px}
+@media (max-width:640px){
+  .elxao-explorer-drawer{width:100vw;padding:20px 14px}
+  .ex-launch{width:100%;justify-content:center}
+}
 CSS
 );
 });
