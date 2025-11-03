@@ -1072,10 +1072,14 @@ function elxao_api_cloud_list($request)
                 continue; // Skip parent directory itself
             }
             if ($self !== '') {
-                if (!str_starts_with($rel_full, $self_prefix)) {
-                    continue;
+                if (str_starts_with($rel_full, $self_prefix)) {
+                    $rel = substr($rel_full, strlen($self_prefix));
+                } else {
+                    // Some Nextcloud versions return href values relative to an
+                    // xml:base attribute (e.g. just "file.pdf"). In that case
+                    // treat the href as belonging to the current directory.
+                    $rel = basename($rel_full);
                 }
-                $rel = substr($rel_full, strlen($self_prefix));
             } else {
                 $rel = $rel_full;
             }
