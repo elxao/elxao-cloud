@@ -280,8 +280,18 @@ function elxao_nc_request($method, $relative, $headers = [], $body = null, $extr
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_HEADER, true);
     curl_setopt($ch, CURLOPT_TIMEOUT, (int)ELXAO_NC_TIMEOUT);
-    // Always send Depth header, but allow overrides
-    $http_headers = array_merge(['Depth: 1'], $headers);
+    // Always send a Depth header unless caller provided one
+    $http_headers = $headers;
+    $hasDepth     = false;
+    foreach ($http_headers as $hdr) {
+        if (stripos($hdr, 'depth:') === 0) {
+            $hasDepth = true;
+            break;
+        }
+    }
+    if (!$hasDepth) {
+        array_unshift($http_headers, 'Depth: 1');
+    }
     curl_setopt($ch, CURLOPT_HTTPHEADER, $http_headers);
     if ($body !== null) {
         curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
